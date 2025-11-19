@@ -14,14 +14,19 @@ Sources: https://github.com/AltairGeo/prerevolution-russian-plugin
 """
 
 from base_plugin import BasePlugin, HookResult, HookStrategy
-from ui.settings import Header, Input, Switch, Text, Divider
+from ui.settings import Header, Input, Switch, Text
 from typing import Any, Dict, List
-from file_utils import get_cache_dir, read_file, write_file
+from file_utils import delete_file, get_cache_dir, read_file, write_file
 from pathlib import Path
 from copy import copy
 import json
 import requests
 from string import punctuation
+from urllib.parse import urlparse
+import re
+from ui.alert import AlertDialogBuilder
+from client_utils import get_last_fragment
+from android_utils import log
 
 
 
@@ -29,7 +34,29 @@ from string import punctuation
 
 DEFAULT_DICT_ADDRESS = "https://pub.files.delroms.ru/pre_rev_dict.json"
 
-CONSONANTS = ("б", "в", "г", "д", "ж", "з", "й", "к", "л", "м", "н", "п", "р", "с", "т", "ф", "х", "ц", "ч", "ш", "щ")
+CONSONANTS = (
+    "б",
+    "в",
+    "г",
+    "д",
+    "ж",
+    "з",
+    "й",
+    "к",
+    "л",
+    "м",
+    "н",
+    "п",
+    "р",
+    "с",
+    "т",
+    "ф",
+    "х",
+    "ц",
+    "ч",
+    "ш",
+    "щ",
+)
 VOWELS = ("а", "е", "ё", "и", "о", "у", "ы", "э", "ю", "я")
 
 # Слова игнорируемые для перевода
@@ -57,6 +84,7 @@ class WordPresent:
         from_text - classmethod для преобразования текста в список объектов WordPresent.
         from_words_to_str - Статичный метод для преобразования списка объектов WordPresent в переведённую строку.
     """
+
     __slots__ = ("is_title", "_rus_dict", "origin")
 
     def __init__(self, word: str, rus_dict: Dict[str, str]) -> None:
@@ -81,7 +109,11 @@ class WordPresent:
         i = 0
         while i < len(old_str):
             current_char = old_str[i]
-            if current_char == "и" and i + 1 < len(old_str) and old_str[i + 1] in VOWELS:
+            if (
+                current_char == "и"
+                and i + 1 < len(old_str)
+                and old_str[i + 1] in VOWELS
+            ):
                 result_chars.append("i")
                 i += 1
             else:
@@ -89,7 +121,6 @@ class WordPresent:
                 i += 1
 
         return "".join(result_chars)
-
 
     @property
     def old(self) -> str:
@@ -113,28 +144,12 @@ class WordPresent:
     def from_text(cls, text: str, ru_dict: dict) -> List["WordPresent"]:
         """
         Метод для преобразования текста в набор объектов WordPresent.
-        Логика работы:
-            1. Разбивает текст по пробелам.
-            2. Отделяет от слова знаки пунктуации если таковые присутствуют.
-            3. Создаёт список объектов и возвращает его.
         """
-        dirt_list_of_words = text.split(" ")
 
-        list_sepparated = []
-        for i in dirt_list_of_words:
-            if not i:
-                continue
+        pattern = r'(\w+|[^\w\s])'
+        tokens = re.findall(pattern, text)
 
-            if i[0] in punctuation:
-                list_sepparated.append(i[0])
-                i = i[1:]
-                list_sepparated.append(i)
-            elif i[-1] in punctuation:
-                list_sepparated.append(i)
-                list_sepparated.append(i[-1])
-                i = i[:-1]
-
-        return [cls(i, ru_dict) for i in list_sepparated] # type: ignore
+        return [cls(token, ru_dict) for token in tokens if token.strip()]
 
     @staticmethod
     def from_words_to_str(words: List["WordPresent"]) -> str:
@@ -148,16 +163,16 @@ class WordPresent:
                 3. В остальных случаях добавляем перед словом пробел.
             3. Возвращаем результат конкатенации строк.
         """
-        final_str = ""
-        list_of_strs = [i.old for i in words]
-        for i, v in enumerate(list_of_strs, start=0):
-            if i == 0 or v in punctuation:
-                pass
-            else:
-                v = f" {v}"
-            final_str += v
-        return final_str
+        result = []
+        for word in words:
+            current_word = word.old
 
+            if not result or word.origin in punctuation:
+                result.append(current_word)
+            else:
+                result.append(' ' + current_word)
+
+        return ''.join(result)
 
 class ChadTranslator(BasePlugin):
     """
@@ -168,6 +183,7 @@ class ChadTranslator(BasePlugin):
     Реализует хук для работы с сообщением перед отправкой.
     Управляет настройками плагина.
     """
+
     def __init__(self) -> None:
         super().__init__()
         self.rus_dict: Dict[str, str] | None = None
@@ -176,14 +192,28 @@ class ChadTranslator(BasePlugin):
         self.add_on_send_message_hook()
         self._check_rus_dict()
 
+    def _download_a_dict(self, url: str, path_to_dict: str) -> None:
+        resp = requests.get(url)
+        if resp.status_code != 200:
+            raise Exception("bad status")
+
+        write_file(str(path_to_dict), resp.text)
+        rus_dict = json.loads(resp.text)
+
+        if not rus_dict:
+            raise Exception()
+
+        self.rus_dict = rus_dict
+
     def _check_rus_dict(self) -> None:
-        url_dict: str = self.get_setting("url_of_modern_retro_dict") or DEFAULT_DICT_ADDRESS
+        url_dict: str = (
+            self.get_setting("url_of_modern_retro_dict") or DEFAULT_DICT_ADDRESS
+        )
         path_to_dict = Path(get_cache_dir() + url_dict.split("/")[-1])
 
         # If dictionary exist
         if self.rus_dict is not None:
             return
-
 
         # Try to load from cache
         try:
@@ -198,20 +228,9 @@ class ChadTranslator(BasePlugin):
 
         # Download from server
         try:
-            resp = requests.get(url_dict)
-            if resp.status_code != 200:
-                raise Exception("bad status")
-
-            write_file(str(path_to_dict), resp.text)
-            rus_dict = json.loads(resp.text)
-
-            if not rus_dict:
-                raise Exception()
-
-            self.rus_dict = rus_dict
+            self._download_a_dict(url_dict, str(path_to_dict))
         except Exception:
             raise ValueError("Не удалось загрузить или обработать словарь.")
-
 
     def on_send_message_hook(self, account: int, params: Any) -> HookResult:
         enabled = self.get_setting("translator_enabled")
@@ -228,10 +247,68 @@ class ChadTranslator(BasePlugin):
 
         return HookResult(strategy=HookStrategy.DEFAULT, params=params)
 
+    def _show_error(self, title: str, error_message: str) -> None:
+        current_fragment = get_last_fragment()
+        if not current_fragment:
+            log("Cannot show dialog, no current fragment.")
+            return
+
+        activity = current_fragment.getParentActivity()
+        if not activity:
+            log("Cannot show dialog, no parent activity.")
+            return
+
+        builder = AlertDialogBuilder(activity)
+        builder.set_title(title)
+        builder.set_message(error_message)
+
+
+        def on_btn_click(bld: AlertDialogBuilder, which: int):
+            bld.dismiss()
+
+        builder.set_negative_button("Ок", on_btn_click)
+
+        builder.show()
+
+    def _on_change_url_of_source_dictionary(self, new_value: str):
+        try:
+            if new_value.split(".")[-1] != "json":
+                raise Exception("Its not a json file!")
+            parsed = urlparse(new_value)
+
+            if not all([parsed.scheme, parsed.netloc]):
+                raise Exception("Invalid url!")
+
+            resp = requests.get(new_value)
+            if not resp.ok:
+                raise Exception("Not access to resource!")
+
+        except Exception as e:
+            self.set_setting("url_of_modern_retro_dict", DEFAULT_DICT_ADDRESS)
+            self._show_error("Ошибка при изменении URL!", f"Подробнее: {e}")
+            return
+
+        delete_file(
+            str(Path(get_cache_dir() + DEFAULT_DICT_ADDRESS.split('/')[-1]))
+        )
+
+        path_to_dict = Path(get_cache_dir() + new_value.split("/")[-1])
+
+        try:
+            self._download_a_dict(new_value, str(path_to_dict))
+        except Exception as e:
+            self._show_error("Ошибка при загрузке нового словаря!", f"Подробнее: {e}")
+
 
     def create_settings(self):
         return [
             Header("Main settings"),
             Switch(key="translator_enabled", text="Enable a translator", default=True),
-            Input(key="url_of_modern_retro_dict", text="URL address of dict Modern-Old Russian", default=DEFAULT_DICT_ADDRESS),
+            Input(
+                key="url_of_modern_retro_dict",
+                text="URL address of dict Modern-Old Russian",
+                default=DEFAULT_DICT_ADDRESS,
+                on_change=self._on_change_url_of_source_dictionary,
+                subtext="Need a direct link to json file. Format of file is a \"modern_word\": \"old_word\""
+            ),
         ]
