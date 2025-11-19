@@ -1,3 +1,20 @@
+from base_plugin import BasePlugin, HookResult, HookStrategy
+from ui.settings import Divider, Header, Input, Switch, Text
+from typing import Any, Dict, List
+from file_utils import delete_file, get_cache_dir, read_file, write_file
+from pathlib import Path
+from copy import copy
+import json
+import requests
+from string import punctuation
+from urllib.parse import urlparse
+import re
+from ui.alert import AlertDialogBuilder
+from client_utils import get_last_fragment
+from android_utils import log
+from ui.bulletin import BulletinHelper
+from client_utils import get_last_fragment
+
 __id__ = "russian-retro-translator"
 __name__ = "Pre-reform Russian style for messages"
 __description__ = "Make your messages in retro russian style!\nAuthor: @Altairgeo\nSource: https://github.com/AltairGeo/prerevolution-russian-plugin"
@@ -12,22 +29,6 @@ Data creation: 19.11.2025
 Sources: https://github.com/AltairGeo/prerevolution-russian-plugin
 Создано с любовью <3
 """
-
-from base_plugin import BasePlugin, HookResult, HookStrategy
-from ui.settings import Header, Input, Switch, Text
-from typing import Any, Dict, List
-from file_utils import delete_file, get_cache_dir, read_file, write_file
-from pathlib import Path
-from copy import copy
-import json
-import requests
-from string import punctuation
-from urllib.parse import urlparse
-import re
-from ui.alert import AlertDialogBuilder
-from client_utils import get_last_fragment
-from android_utils import log
-
 
 
 # Константы
@@ -146,7 +147,7 @@ class WordPresent:
         Метод для преобразования текста в набор объектов WordPresent.
         """
 
-        pattern = r'(\w+|[^\w\s])'
+        pattern = r"(\w+|[^\w\s])"
         tokens = re.findall(pattern, text)
 
         return [cls(token, ru_dict) for token in tokens if token.strip()]
@@ -170,9 +171,10 @@ class WordPresent:
             if not result or word.origin in punctuation:
                 result.append(current_word)
             else:
-                result.append(' ' + current_word)
+                result.append(" " + current_word)
 
-        return ''.join(result)
+        return "".join(result)
+
 
 class ChadTranslator(BasePlugin):
     """
@@ -192,6 +194,16 @@ class ChadTranslator(BasePlugin):
         self.add_on_send_message_hook()
         self._check_rus_dict()
 
+    def _get_dict_url(self) -> str:
+        url_dict = self.get_setting("url_of_modern_retro_dict")
+        if not url_dict:
+            url_dict = DEFAULT_DICT_ADDRESS
+        return url_dict
+
+    def _get_path_to_dict(self) -> Path:
+        url_dict = self._get_dict_url()
+        return Path(get_cache_dir() + url_dict)
+
     def _download_a_dict(self, url: str, path_to_dict: str) -> None:
         resp = requests.get(url)
         if resp.status_code != 200:
@@ -206,10 +218,8 @@ class ChadTranslator(BasePlugin):
         self.rus_dict = rus_dict
 
     def _check_rus_dict(self) -> None:
-        url_dict: str = (
-            self.get_setting("url_of_modern_retro_dict") or DEFAULT_DICT_ADDRESS
-        )
-        path_to_dict = Path(get_cache_dir() + url_dict.split("/")[-1])
+        url_dict = self._get_dict_url()
+        path_to_dict = self._get_path_to_dict()
 
         # If dictionary exist
         if self.rus_dict is not None:
@@ -236,10 +246,12 @@ class ChadTranslator(BasePlugin):
         enabled = self.get_setting("translator_enabled")
         if enabled is None:
             enabled = True
+
         if enabled is True:
             self._check_rus_dict()
             if not self.rus_dict:
                 raise Exception("Словарь не инициализирован!")
+
             words = WordPresent.from_text(params.message, self.rus_dict)
             message = WordPresent.from_words_to_str(words)
             params.message = message
@@ -248,6 +260,9 @@ class ChadTranslator(BasePlugin):
         return HookResult(strategy=HookStrategy.DEFAULT, params=params)
 
     def _show_error(self, title: str, error_message: str) -> None:
+        """
+        Метод для показа ошибок через alert окна.
+        """
         current_fragment = get_last_fragment()
         if not current_fragment:
             log("Cannot show dialog, no current fragment.")
@@ -261,7 +276,6 @@ class ChadTranslator(BasePlugin):
         builder = AlertDialogBuilder(activity)
         builder.set_title(title)
         builder.set_message(error_message)
-
 
         def on_btn_click(bld: AlertDialogBuilder, which: int):
             bld.dismiss()
@@ -288,9 +302,7 @@ class ChadTranslator(BasePlugin):
             self._show_error("Ошибка при изменении URL!", f"Подробнее: {e}")
             return
 
-        delete_file(
-            str(Path(get_cache_dir() + DEFAULT_DICT_ADDRESS.split('/')[-1]))
-        )
+        delete_file(str(Path(get_cache_dir() + DEFAULT_DICT_ADDRESS.split("/")[-1])))
 
         path_to_dict = Path(get_cache_dir() + new_value.split("/")[-1])
 
@@ -299,6 +311,27 @@ class ChadTranslator(BasePlugin):
         except Exception as e:
             self._show_error("Ошибка при загрузке нового словаря!", f"Подробнее: {e}")
 
+    def _update_dictionary_of_words(self, view):
+        try:
+            dict_url = self._get_dict_url()
+            if not dict_url:
+                dict_url = DEFAULT_DICT_ADDRESS
+
+            path_to_dict = self._get_path_to_dict()
+
+            if path_to_dict.exists():
+                delete_file(str(path_to_dict))
+
+            self.rus_dict = None
+
+            self._download_a_dict(dict_url, str(path_to_dict))
+
+            current_fragment = get_last_fragment()
+
+            BulletinHelper.show_success("Словарь успешно обновлён!", current_fragment)
+        except Exception as e:
+            current_fragment = get_last_fragment()
+            BulletinHelper.show_error(f"Случилась ошибка при обновлении словаря:\n{e}", current_fragment)
 
     def create_settings(self):
         return [
@@ -309,6 +342,12 @@ class ChadTranslator(BasePlugin):
                 text="URL address of dict Modern-Old Russian",
                 default=DEFAULT_DICT_ADDRESS,
                 on_change=self._on_change_url_of_source_dictionary,
-                subtext="Need a direct link to json file. Format of file is a \"modern_word\": \"old_word\""
+                subtext='Need a direct link to json file. Format of file is a "modern_word": "old_word"',
+            ),
+            Divider(),
+            Text(
+                "Обновить словарь",
+                accent=True,
+                on_click=self._update_dictionary_of_words,
             ),
         ]
