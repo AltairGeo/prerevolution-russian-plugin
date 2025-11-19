@@ -128,10 +128,11 @@ class WordPresent:
             if i[0] in punctuation:
                 list_sepparated.append(i[0])
                 i = i[1:]
+                list_sepparated.append(i)
             elif i[-1] in punctuation:
+                list_sepparated.append(i)
                 list_sepparated.append(i[-1])
                 i = i[:-1]
-            list_sepparated.append(i)
 
         return [cls(i, ru_dict) for i in list_sepparated] # type: ignore
 
