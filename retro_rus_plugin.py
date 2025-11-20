@@ -1,3 +1,4 @@
+from enum import Enum
 from base_plugin import BasePlugin, HookResult, HookStrategy
 from ui.settings import Divider, Header, Input, Switch, Text
 from typing import Any, Dict, List
@@ -58,10 +59,56 @@ CONSONANTS = (
     "ш",
     "щ",
 )
-VOWELS = ("а", "е", "ё", "и", "о", "у", "ы", "э", "ю", "я")
+VOWELS = ("а", "е", "ё", "и", "о", "у", "ы", "э", "ю", "я", "й")
+# й - здесь не ошибка, присутствует для более близкого соответствия.\
+
+
+RUSSIAN_MODERN_ALPHABET = set(VOWELS + CONSONANTS)
 
 # Слова игнорируемые для перевода
 EXCEPT_WORDS = ("он", "и")
+
+
+class CaseOfWord:
+    def __init__(self, word: str) -> None:
+        self.origin = word
+
+    @property
+    def case_map(self) -> List[bool]:
+        return [i.isupper() for i in self.origin]
+
+    @staticmethod
+    def apply_case_map_to_word(word: str, case_map: List[bool]) -> str:
+        if all(case_map):
+            return word.upper()
+
+        if all([i is False for i in case_map]):
+            return word
+
+        if len(word) > len(case_map):
+            for _ in range(len(word) - len(case_map)):
+                case_map.append(False)
+
+        final_word = ""
+        for w, c in zip(word, case_map):
+            if c:
+                final_word += w.upper()
+            else:
+                final_word += w
+
+        return final_word
+
+
+class WordTypeEnum(Enum):
+    TO_TRANSLATE = 0
+    ENGLISH = 1
+
+    @staticmethod
+    def get_type_of_word(word: str) -> "WordTypeEnum":
+        if all([(i in RUSSIAN_MODERN_ALPHABET) for i in word.lower().strip()]):
+            return WordTypeEnum.TO_TRANSLATE
+        else:
+            return WordTypeEnum.ENGLISH
 
 
 class WordPresent:
@@ -77,7 +124,8 @@ class WordPresent:
     Attributes:
         self.origin - Исконное слово
         self._rus_dict - Переданный словарь с переводами слов.
-        self.is_title - Флак обозначающий начиналось ли слово с заглавной буквы.
+        self.type_of_word - Обозначение типа слова для корректной обработки. Является WordTypeEnum
+        self._case - Список отображающий изначальное присутствие заглавных в слове.
 
     Реализует методы:
         __simplificate_translate_to_old_style - упрощённый перевод на дореформенный.
@@ -86,26 +134,29 @@ class WordPresent:
         from_words_to_str - Статичный метод для преобразования списка объектов WordPresent в переведённую строку.
     """
 
-    __slots__ = ("is_title", "_rus_dict", "origin")
+    __slots__ = ("type_of_word", "_rus_dict", "origin", "_case_map")
 
     def __init__(self, word: str, rus_dict: Dict[str, str]) -> None:
         self.origin = word
         self._rus_dict = rus_dict
-        self.is_title = word.istitle()
+        self.type_of_word = WordTypeEnum.get_type_of_word(word)
+        self._case_map = CaseOfWord(word).case_map
 
     def __simplificate_translate_to_old_style(self) -> str:
         """
         Реализация алгоритма упрощённого перевода на дореформенный.
 
         Работа алгоритма:
-            1. Если слово оканчивается на согласную, то добавляем в конец твёрдый знак.
-            2. Если после буквы "и" идёт гласная, то буква "и" становится буквой "i"
+            I. Если слово оканчивается на согласную, то добавляем в конец твёрдый знак.
+            II. Если после буквы "и" идёт гласная, то буква "и" становится буквой "i"
         """
         old_str = copy(self.origin)
 
+        # I
         if old_str[-1] in CONSONANTS:
             old_str += "ъ"
 
+        # II
         result_chars = []
         i = 0
         while i < len(old_str):
@@ -128,10 +179,19 @@ class WordPresent:
         """
         property-метод используемый в качестве интерфейса для перевода на дореформенный.
         Логика:
-            Если слово в списке исключений или слово является знаком пунктуации, то отдаёт оригинал слова.
-            Ищет слово в словаре, если не найдено, то прогоняет через упрощённый алгоритм перевода.
+            1.  Если слово:
+                    в списке исключений,
+                    cлово является знаком пунктуации,
+                    слово состоить из английских букв,
+                то отдаёт оригинал слова.
+            2. Ищет слово в словаре, если не найдено, то прогоняет через упрощённый алгоритм перевода.
+            3. Применяет карту заглавных.
         """
-        if self.origin in EXCEPT_WORDS or self.origin in punctuation:
+        if (
+            self.origin in EXCEPT_WORDS
+            or self.origin in punctuation
+            or self.type_of_word == WordTypeEnum.ENGLISH
+        ):
             return self.origin
 
         old_word = self._rus_dict.get(self.origin.lower())
@@ -139,7 +199,8 @@ class WordPresent:
         if not old_word:
             old_word = self.__simplificate_translate_to_old_style()
 
-        return old_word if not self.is_title else old_word.title()
+        # Применение карты заглавных
+        return CaseOfWord.apply_case_map_to_word(old_word, self._case_map)
 
     @classmethod
     def from_text(cls, text: str, ru_dict: dict) -> List["WordPresent"]:
@@ -147,7 +208,9 @@ class WordPresent:
         Метод для преобразования текста в набор объектов WordPresent.
         """
 
-        pattern = r"(\w+|[^\w\s])"
+        # pattern = r"(\w+|[^\w\s])"
+        pattern = r"((?:https?|ftp)://[^\s]+|\w+|[^\w\s])"  # Repair links
+
         tokens = re.findall(pattern, text)
 
         return [cls(token, ru_dict) for token in tokens if token.strip()]
@@ -166,6 +229,13 @@ class WordPresent:
         """
         result = []
         for word in words:
+            if word.type_of_word == WordTypeEnum.ENGLISH:
+                if not result:
+                    result.append(word.origin)
+                    continue
+                result.append(" " + word.origin)
+                continue
+
             current_word = word.old
 
             if not result or word.origin in punctuation:
@@ -249,6 +319,7 @@ class ChadTranslator(BasePlugin):
 
         if enabled is True:
             self._check_rus_dict()
+
             if not self.rus_dict:
                 raise Exception("Словарь не инициализирован!")
 
@@ -331,7 +402,9 @@ class ChadTranslator(BasePlugin):
             BulletinHelper.show_success("Словарь успешно обновлён!", current_fragment)
         except Exception as e:
             current_fragment = get_last_fragment()
-            BulletinHelper.show_error(f"Случилась ошибка при обновлении словаря:\n{e}", current_fragment)
+            BulletinHelper.show_error(
+                f"Случилась ошибка при обновлении словаря:\n{e}", current_fragment
+            )
 
     def create_settings(self):
         return [
