@@ -20,7 +20,7 @@ __id__ = "russian-retro-translator"
 __name__ = "Pre-reform Russian style for messages"
 __description__ = "Make your messages in retro russian style!\nAuthor: @Altairgeo\nSource: https://github.com/AltairGeo/prerevolution-russian-plugin"
 __author__ = "@Altairgeo"
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __icon__ = "DorevForm/0"
 __min_version__ = "11.12.0"
 
