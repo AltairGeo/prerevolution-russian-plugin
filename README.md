@@ -13,7 +13,7 @@ Run a hot-reload dev-mode(need a ADB connection with your phone):
 extera dorevul_plugin.py
 ```
 
-[Also read extera docs for plugins](https://plugins.exteragram.app/)
+[Read extera docs for plugins](https://plugins.exteragram.app/)
 
 ## TODO: 
   - [x] ~Релизнуть первую рабочую версию плагина.~
