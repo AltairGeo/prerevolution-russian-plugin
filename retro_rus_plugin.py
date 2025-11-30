@@ -83,7 +83,7 @@ class CaseOfWord:
         if all(case_map):
             return word.upper()
 
-        if all([i is False for i in case_map]):
+        if all([not i for i in case_map]):
             return word
 
         if len(word) > len(case_map):
@@ -152,6 +152,7 @@ class WordPresent:
             II. Если после буквы "и" идёт гласная, то буква "и" становится буквой "i"
         """
         old_str = copy(self.origin)
+        old_str = old_str.lower()
 
         # I
         if old_str[-1] in CONSONANTS:
