@@ -21,7 +21,7 @@ __name__ = "Pre-reform Russian style for messages"
 __description__ = "Make your messages in retro russian style!\nAuthor: @Altairgeo\nSource: https://github.com/AltairGeo/prerevolution-russian-plugin"
 __author__ = "@Altairgeo"
 __version__ = "0.1.2"
-__icon__ = "DorevForm/0"
+__icon__ = "DorevForm/1"
 __min_version__ = "11.12.0"
 
 
@@ -71,7 +71,7 @@ EXCEPT_WORDS = ("он", "и")
 
 
 class CaseOfWord:
-    __slots__ = ("origin")
+    __slots__ = "origin"
 
     def __init__(self, word: str) -> None:
         self.origin = word
@@ -82,16 +82,20 @@ class CaseOfWord:
 
     @staticmethod
     def apply_case_map_to_word(word: str, case_map: List[bool]) -> str:
+        # Если все буквы были большие то возращает слово в верхнем регистре
         if all(case_map):
             return word.upper()
 
+        # Если все буквы маленькие возвращает слово в нижнем регистре
         if all([not i for i in case_map]):
             return word
 
+        # Расширяет карту если переведённое слово превышает длинну оригинального
         if len(word) > len(case_map):
             for _ in range(len(word) - len(case_map)):
                 case_map.append(False)
 
+        # Применение сохраненной карты заглавных
         final_word = ""
         for w, c in zip(word, case_map):
             if c:
