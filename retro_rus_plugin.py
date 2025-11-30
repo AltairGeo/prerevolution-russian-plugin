@@ -71,6 +71,8 @@ EXCEPT_WORDS = ("он", "и")
 
 
 class CaseOfWord:
+    __slots__ = ("origin")
+
     def __init__(self, word: str) -> None:
         self.origin = word
 
