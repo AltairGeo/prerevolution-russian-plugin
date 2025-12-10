@@ -1,15 +1,13 @@
-
-
 ## Dev:
 Require a 3.11 python version.
 
 Install dependencies:
-```bash
+```sh
 pip install -r requirements.txt
 ```
 
 Run a hot-reload dev-mode(need a ADB connection with your phone):
-```bash
+```sh
 extera dorevul_plugin.py
 ```
 
