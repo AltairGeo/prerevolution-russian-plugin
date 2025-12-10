@@ -66,9 +66,7 @@ VOWELS = ("а", "е", "ё", "и", "о", "у", "ы", "э", "ю", "я", "й")
 RUSSIAN_MODERN_ALPHABET = set(VOWELS + CONSONANTS)
 
 # Слова игнорируемые для перевода
-EXCEPT_WORDS = ("и", )
-
-
+EXCEPT_WORDS = ("и",)
 
 
 class CaseOfWord:
@@ -254,7 +252,7 @@ class WordPresent:
 
             current_word = word.old
 
-            if (not result):
+            if not result:
                 result.append(current_word)
             else:
                 result.append(" " + current_word)
