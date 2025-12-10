@@ -57,7 +57,6 @@ CONSONANTS = (
     "ч",
     "ш",
     "щ",
-    "й",
 )
 VOWELS = ("а", "е", "ё", "и", "о", "у", "ы", "э", "ю", "я", "й")
 # й - здесь не ошибка, присутствует для соответствия дореволюционным правилам.
@@ -67,7 +66,9 @@ VOWELS = ("а", "е", "ё", "и", "о", "у", "ы", "э", "ю", "я", "й")
 RUSSIAN_MODERN_ALPHABET = set(VOWELS + CONSONANTS)
 
 # Слова игнорируемые для перевода
-EXCEPT_WORDS = ("он", "и")
+EXCEPT_WORDS = ("и", )
+
+
 
 
 class CaseOfWord:
@@ -109,11 +110,14 @@ class CaseOfWord:
 class WordTypeEnum(Enum):
     TO_TRANSLATE = 0
     ENGLISH = 1
+    PUNCTUATION = 2
 
     @staticmethod
     def get_type_of_word(word: str) -> "WordTypeEnum":
         if all([(i in RUSSIAN_MODERN_ALPHABET) for i in word.lower().strip()]):
             return WordTypeEnum.TO_TRANSLATE
+        elif word in punctuation:
+            return WordTypeEnum.PUNCTUATION
         else:
             return WordTypeEnum.ENGLISH
 
@@ -197,7 +201,7 @@ class WordPresent:
         """
         if (
             self.origin in EXCEPT_WORDS
-            or self.origin in punctuation
+            or self.type_of_word == WordTypeEnum.PUNCTUATION
             or self.type_of_word == WordTypeEnum.ENGLISH
         ):
             return self.origin
@@ -244,9 +248,13 @@ class WordPresent:
                 result.append(" " + word.origin)
                 continue
 
+            if word.type_of_word == WordTypeEnum.PUNCTUATION:
+                result.append(word.origin)
+                continue
+
             current_word = word.old
 
-            if not result or word.origin in punctuation:
+            if (not result):
                 result.append(current_word)
             else:
                 result.append(" " + current_word)
